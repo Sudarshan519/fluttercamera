@@ -5,10 +5,13 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fluttercamera/main.dart';
+import 'package:image_picker/image_picker.dart';
 import '../controllers/home_controller.dart';
 import 'package:fluttercamera/app/constant/app_colors.dart';
 import 'package:fluttercamera/app/constant/constant.dart';
 import 'package:fluttercamera/app/modules/previewimage/views/previewimage_view.dart';
+
+enum LogoDirection { topleft, topright, bottomleft, bottomright }
 
 class CameraHome extends StatefulWidget {
   const CameraHome({Key? key}) : super(key: key);
@@ -25,7 +28,11 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
   XFile? imageFile;
   final homeController = HomeController.homecontroller;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey();
+  late File logo;
 
+  late File watermarkedFile;
+
+  final picker = ImagePicker();
   @override
   void initState() {
     ///lock orientation
@@ -34,14 +41,107 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
     ]);
     ambiguate(WidgetsBinding.instance)?.addObserver(this);
     _initCamera(cameras.first);
+
     super.initState();
+  }
+
+  ///
+  Widget settings() {
+    return AlertDialog(
+      title: Text('Settings'),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('This item is no longer available'),
+          TextButton(
+            onPressed: () {
+              homeController.logoDirection.value = LogoDirection.topleft;
+              if (!homeController.islogoSelected.value) {
+                getWatermarkImage();
+              } else {
+                homeController.islogoSelected.value = false;
+              }
+            },
+            child: Obx(() => homeController.islogoSelected.value
+                ? Text("Clear logo")
+                : Text('Choose or Changelogo file')),
+          ),
+          Row(
+            children: [Text('Logo Direction')],
+          ),
+          Obx(
+            () => homeController.logochanged.value
+                ? CircularProgressIndicator()
+                : DropdownButton(
+                    value: homeController.logoDirection.value,
+                    onChanged: (value) {
+                      print(value);
+                      homeController.logochanged.value = true;
+
+                      if (value == LogoDirection.bottomright) {
+                        homeController.logoDirection.value =
+                            LogoDirection.bottomright;
+                      } else if (value == LogoDirection.bottomleft) {
+                        homeController.logoDirection.value =
+                            LogoDirection.bottomleft;
+                      } else if (value == LogoDirection.topright) {
+                        homeController.logoDirection.value =
+                            LogoDirection.topright;
+                      } else {
+                        homeController.logoDirection.value =
+                            LogoDirection.topleft;
+                      }
+                      homeController.logochanged.value = false;
+                    },
+                    items: [
+                        DropdownMenuItem(
+                          child: Text('TopLeft'),
+                          value: LogoDirection.topleft,
+                        ),
+                        DropdownMenuItem(
+                          child: Text('TopRight'),
+                          value: LogoDirection.topright,
+                        ),
+                        DropdownMenuItem(
+                          child: Text('BottomLeft'),
+                          value: LogoDirection.bottomleft,
+                        ),
+                        DropdownMenuItem(
+                          child: Text('BottomRight'),
+                          value: LogoDirection.bottomright,
+                        ),
+                      ]),
+          )
+        ],
+      ),
+      actions: [
+        TextButton(
+          child: Text('Ok'),
+          onPressed: () {
+            Get.back();
+          },
+        ),
+      ],
+    );
+  }
+
+  ///pick image for watermark
+  Future getWatermarkImage() async {
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    setState(() {
+      if (pickedFile != null) {
+        logo = File(pickedFile.path);
+        homeController.islogoSelected.value = true;
+      }
+    });
   }
 
   ///init camera
   Future<void> _initCamera(CameraDescription description) async {
     homeController.cameracontroller =
         CameraController(description, ResolutionPreset.max, enableAudio: true);
-
+    homeController.cameracontroller!.setFlashMode(FlashMode.off);
     try {
       await homeController.cameracontroller!.initialize();
       await Future.wait([
@@ -59,14 +159,14 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
     }
   }
 
-  ///toggle aspect ratio
-  void toggleaspectratio() {
-    // get current lens direction (front / rear)
-    final lensDirection =
-        homeController.cameracontroller!.description.lensDirection;
-    if (lensDirection == CameraLensDirection.front) {
-    } else {}
-  }
+  // ///toggle aspect ratio
+  // void toggleaspectratio() {
+  //   // get current lens direction (front / rear)
+  //   final lensDirection =
+  //       homeController.cameracontroller!.description.lensDirection;
+  //   if (lensDirection == CameraLensDirection.front) {
+  //   } else {}
+  // }
 
   ///toggle camera
   void _toggleCameraLens() {
@@ -106,7 +206,6 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
 
     try {
       XFile file = await cameraController.takePicture();
-      print(file.path);
 
       return file;
     } on CameraException {
@@ -116,11 +215,21 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
 
   ///clicked
   void onTakePictureButtonPressed() {
-    takePicture().then((XFile? file) {
+    takePicture().then((XFile? file) async {
       if (mounted) {
-        setState(() {
-          imageFile = file;
-        });
+        if (homeController.islogoSelected.value) {
+          File watermarkedPicture = await homeController.watermarkPicture(
+            File(file!.path), logo, //file.path.split('/').last,
+
+            homeController.logoDirection.value,
+            // text: 'Custom Logo',
+          );
+          setState(() {
+            watermarkedFile = watermarkedPicture;
+            imageFile = file;
+          });
+        }
+
         // homeController.dispose();
 
         if (file != null) showInSnackBar('Picture saved to ${file.path}');
@@ -213,9 +322,28 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
 
   ///menu button for settings cont...
   Widget menuButton() {
-    return Icon(
-      Icons.menu,
-      color: Colors.transparent,
+    return InkWell(
+      onTap: () {
+        // showModalBottomSheet(
+        //     context: context,
+        //     builder: (_) {
+        //       return Container(
+        //         height: 50,
+        //         color: Colors.white,
+        //       );
+        //     });
+        // Get.to(SettingsView(),
+        //     transition: Transition.rightToLeft);
+        Get.dialog(settings());
+      },
+      child:
+          //  islogoSelected
+          //     ? Image.file(logo)
+          //     :
+          Icon(
+        Icons.menu,
+        color: Colors.white,
+      ),
     );
   }
 
@@ -238,6 +366,7 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
               children: [
                 ///tob bar
                 Container(
+                  alignment: Alignment.topCenter,
                   padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   height: size.height * .08,
                   color: AppColors.black.withOpacity(.5),
@@ -287,6 +416,19 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
+                          // CircleAvatar(
+                          //   backgroundColor: AppColors.white,
+                          //   radius: 25,
+                          //   child: InkWell(
+                          //     child: CircleAvatar(
+
+                          //         ),
+                          //     onTap: () {
+
+                          //     },
+                          //   ),
+                          // ),
+
                           ///test zoom level
                           // Obx(() => Text(
                           //       homeController.scale.value.toStringAsFixed(1),
@@ -299,15 +441,22 @@ class _CameraHomeState extends State<CameraHome> with WidgetsBindingObserver {
                                 )
                               : InkWell(
                                   onTap: () {
-                                    Get.to(() =>
-                                        PreviewimageView(imageFile!.path));
+                                    Get.to(() => PreviewimageView(
+                                        imageFile!.path,
+                                        homeController.islogoSelected.value
+                                            ? watermarkedFile.path
+                                            : imageFile!.path,
+                                        logo.path));
                                   },
                                   child: CircleAvatar(
                                     radius: 25,
                                     backgroundColor: AppColors.black,
-                                    backgroundImage: imageFile != null
-                                        ? FileImage(File(imageFile!.path))
-                                        : null,
+                                    backgroundImage: homeController
+                                            .islogoSelected.value
+                                        ? FileImage(watermarkedFile)
+                                        : imageFile != null
+                                            ? FileImage(File(imageFile!.path))
+                                            : null,
                                   ),
                                 ),
                           CircleAvatar(

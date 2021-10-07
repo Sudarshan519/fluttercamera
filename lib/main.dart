@@ -20,6 +20,7 @@ Future<void> main() async {
       initialRoute: AppPages.INITIAL,
       // theme: Themes.dark,
       getPages: AppPages.routes,
+      
       initialBinding: InitialBinding(),
     ),
   );

@@ -9,6 +9,6 @@ class InitialBinding extends Bindings {
     Get.put(
       AppService(),
     );
-    Get.put(HomeController());
+    Get.lazyPut(() => HomeController());
   }
 }
